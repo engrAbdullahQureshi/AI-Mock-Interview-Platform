@@ -23,9 +23,11 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     
-    # ========== Database - MongoDB Atlas ==========
-    # IMPORTANT: Keep the colon and type annotation!
-    MONGODB_URL: str = "mongodb+srv://hafizabdullah1607_db_user:eMDhgHOJludsuBqy@cluster0.0ysrmwe.mongodb.net/?appName=Cluster0"
+    # ========== Database - MongoDB (OPTIONAL) ==========
+    # Leave MONGODB_URL empty to run with the built-in in-memory store
+    # (perfect for local demos / reviewers with no MongoDB). Set it in .env
+    # to use a real MongoDB Atlas cluster. Never commit real credentials here.
+    MONGODB_URL: str = ""
     MONGODB_DB_NAME: str = "ai_interview_db"
     
     # ========== Redis (Optional) ==========
@@ -35,6 +37,8 @@ class Settings(BaseSettings):
     
     # ========== AI Service ==========
     GROQ_API_KEY: str | None = None
+    # Centralized so a Groq model change is a one-line/env fix, not a hunt.
+    GROQ_MODEL: str = "openai/gpt-oss-120b"
   
     
     

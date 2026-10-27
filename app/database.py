@@ -24,30 +24,52 @@ class DatabaseManager:
     
     client: Optional[AsyncIOMotorClient] = None
     db: Optional[AsyncIOMotorDatabase] = None
-    
+    using_memory: bool = False
+
     @classmethod
     async def connect_db(cls):
         """
-        Establishes connection to MongoDB Atlas.
-        Called ONCE when application starts.
+        Establish the database connection.
+
+        If MONGODB_URL is set AND reachable within 3s, use MongoDB (Motor).
+        Otherwise transparently fall back to the in-memory store so the whole
+        app runs locally with only a Groq API key (perfect for demos/reviewers).
         """
-        try:
-            # Create MongoDB client
-            cls.client = AsyncIOMotorClient(settings.MONGODB_URL)
-            
-            # Select database
-            cls.db = cls.client[settings.MONGODB_DB_NAME]
-            
-            # Test connection (ping database)
-            await cls.client.admin.command('ping')
-            logger.info(f" Connected to MongoDB: {settings.MONGODB_DB_NAME}")
-            
-            # Create indexes for better performance
-            await cls.create_indexes()
-            
-        except Exception as e:
-            logger.error(f" MongoDB connection failed: {e}")
-            raise  # Re-raise error to stop app startup if DB fails
+        url = (settings.MONGODB_URL or "").strip()
+
+        if url:
+            try:
+                cls.client = AsyncIOMotorClient(url, serverSelectionTimeoutMS=3000)
+                cls.db = cls.client[settings.MONGODB_DB_NAME]
+                await cls.client.admin.command("ping")
+                cls.using_memory = False
+                logger.info(f"Connected to MongoDB: {settings.MONGODB_DB_NAME}")
+                await cls.create_indexes()
+                return
+            except Exception as e:
+                logger.warning(
+                    f"MongoDB unavailable ({e}); falling back to in-memory store."
+                )
+                try:
+                    if cls.client:
+                        cls.client.close()
+                except Exception:
+                    pass
+                cls.client = None
+
+        # ----- In-memory fallback -----
+        import os
+        from app.store.memory_db import MemoryDatabase
+
+        local_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), ".localdb.json"
+        )
+        cls.db = MemoryDatabase(local_path)
+        cls.using_memory = True
+        logger.warning(
+            "Using in-memory store (no MongoDB configured/reachable). "
+            "Data persists to .localdb.json on this machine only."
+        )
     
     @classmethod
     async def create_indexes(cls):

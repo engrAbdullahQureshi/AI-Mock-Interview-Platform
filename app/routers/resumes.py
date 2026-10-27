@@ -86,13 +86,13 @@ async def upload_resume(
     db: AsyncIOMotorDatabase = Depends(get_database),
 ):
     """
-    Upload a resume file, extract text, and parse with Gemini AI.
+    Upload a resume file, extract text, and parse with Groq AI.
 
     FLOW:
     1. Validate file type and size
     2. Save file to ./uploads/ directory
     3. Extract raw text (PDF/DOCX/TXT)
-    4. Send text to Gemini for structured parsing
+    4. Send text to Groq for structured parsing
     5. Save everything to MongoDB
     6. Return structured resume data
 
@@ -145,10 +145,10 @@ async def upload_resume(
     if not raw_text:
         logger.warning(f"Text extraction failed for {filename} — saving file without text")
 
-    # Step 5: Parse with Gemini AI (only if we have text)
+    # Step 5: Parse with Groq AI (only if we have text)
     parsed_data = None
     if raw_text:
-        logger.info("Sending resume to Gemini for parsing...")
+        logger.info("Sending resume to Groq for parsing...")
         parsed_data = await parse_resume_with_ai(raw_text)
 
     # Step 6: Save to MongoDB

@@ -121,17 +121,29 @@ def _call_groq(system_prompt: str, messages: list) -> str:
     if not _groq_client:
         return "AI service is not configured. Please check GROQ_API_KEY."
 
-    try:
-        response = _groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "system", "content": system_prompt}] + messages,
-            temperature=0.7,
-            max_tokens=300,
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        logger.error(f"Groq WebSocket call failed: {e}")
-        return "I encountered an issue. Please repeat your answer."
+    import time
+    delay = 2.0
+    for attempt in range(3):
+        try:
+            response = _groq_client.chat.completions.create(
+                model=settings.GROQ_MODEL,
+                messages=[{"role": "system", "content": system_prompt}] + messages,
+                temperature=0.7,
+                max_tokens=300,
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            s = str(e).lower()
+            transient = any(t in s for t in (
+                "429", "rate limit", "rate_limit", "503", "overload", "timeout", "timed out",
+            ))
+            if transient and attempt < 2:
+                logger.warning(f"Groq WS transient error (attempt {attempt + 1}/3); retrying in {delay:.0f}s")
+                time.sleep(delay)
+                delay *= 2
+                continue
+            logger.error(f"Groq WebSocket call failed: {e}")
+            return "I encountered an issue. Please repeat your answer."
 
 
 # ==========================================================================

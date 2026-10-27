@@ -38,10 +38,10 @@ class RedisManager:
             
             # Test connection
             await cls.client.ping()
-            logger.info(f"✅ Connected to Redis: {settings.REDIS_HOST}:{settings.REDIS_PORT}")
+            logger.info(f"Connected to Redis: {settings.REDIS_HOST}:{settings.REDIS_PORT}")
             
         except Exception as e:
-            logger.warning(f"⚠️ Redis connection failed: {e}")
+            logger.warning(f"Redis connection failed: {e}")
             logger.warning("App will continue without caching and rate limiting")
             cls.client = None  # Set to None, so we know Redis is unavailable
     

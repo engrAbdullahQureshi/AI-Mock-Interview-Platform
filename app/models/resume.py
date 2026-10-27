@@ -4,7 +4,7 @@ from datetime import datetime
 
 
 # ========== STRUCTURED RESUME DATA ==========
-# This is what Gemini extracts from the raw resume text
+# This is what Groq extracts from the raw resume text
 
 class WorkExperience(BaseModel):
     company: Optional[str] = None
@@ -22,7 +22,7 @@ class Education(BaseModel):
 
 class ParsedResumeData(BaseModel):
     """
-    Structured data extracted by Gemini AI from raw resume text.
+    Structured data extracted by Groq AI from raw resume text.
     All fields are optional since resume formats vary widely.
     """
     full_name: Optional[str] = None
@@ -47,7 +47,7 @@ class ResumeResponse(BaseModel):
     file_size: int
     uploaded_at: datetime
     raw_text: Optional[str] = None     # Full extracted text
-    parsed_data: Optional[ParsedResumeData] = None  # Gemini structured output
+    parsed_data: Optional[ParsedResumeData] = None  # Groq structured output
 
     class Config:
         json_schema_extra = {

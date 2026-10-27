@@ -6,7 +6,8 @@ import logging
 
 from app.database import get_database
 from app.routers.auth import get_current_user
-from app.services.ai_service import generate_interview_questions
+from app.services.ai_service import generate_interview_questions, score_interview
+from app.models.session import MessageRole
 from app.models.interview import (
     InterviewCreateRequest,
     InterviewResponse,
@@ -103,6 +104,8 @@ async def create_interview(
         parsed_resume=parsed_data,
         job_title=payload.job_title,
         num_questions=payload.num_questions,
+        job_description=payload.job_description,
+        focus_skills=payload.focus_skills,
     )
 
     if not questions:
@@ -120,6 +123,7 @@ async def create_interview(
         "resume_id":      payload.resume_id,
         "title":          title,
         "job_title":      payload.job_title,
+        "job_description": payload.job_description,
         "questions":      questions,
         "question_count": len(questions),
         "status":         InterviewStatus.active,
@@ -261,3 +265,146 @@ async def delete_interview(
 
     logger.info(f"Interview {interview_id} deleted by user={user_id}")
     # 204 returns no body
+
+
+# ========== INTERVIEW REPORT (scoring) ==========
+
+_DIMS = ["relevance", "technical_depth", "communication", "specificity", "jd_alignment"]
+
+
+def _clamp_score(v) -> int:
+    try:
+        return max(0, min(100, int(round(float(v)))))
+    except Exception:
+        return 0
+
+
+@router.get(
+    "/{interview_id}/report",
+    summary="Scored analytics report for a completed interview",
+    description=(
+        "Scores the saved transcript across 5 dimensions with one Groq call. "
+        "The model judges each answer; Python aggregates the overall numbers so "
+        "they are deterministic and reproducible. Cached on first computation."
+    ),
+)
+async def interview_report(
+    interview_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncIOMotorDatabase = Depends(get_database),
+):
+    user_id = str(current_user["_id"])
+
+    try:
+        oid = ObjectId(interview_id)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid interview_id format.",
+        )
+
+    interview = await db.interviews.find_one({"_id": oid, "user_id": user_id})
+    if not interview:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Interview not found or does not belong to you.",
+        )
+
+    if interview.get("status") != InterviewStatus.completed:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Interview not completed.",
+        )
+
+    # Return cached report if we already scored this interview.
+    if interview.get("report"):
+        return interview["report"]
+
+    questions = interview.get("questions", [])
+
+    # Grab the most recent session's transcript for this interview.
+    sessions = (
+        await db.sessions.find({"interview_id": interview_id})
+        .sort("started_at", -1)
+        .to_list(length=1)
+    )
+    messages = sessions[0].get("messages", []) if sessions else []
+    answers = [m.get("content", "") for m in messages if m.get("role") == MessageRole.user]
+
+    # Pair each question with the candidate's answer in order.
+    qa_pairs = []
+    for i, q in enumerate(questions):
+        qa_pairs.append({
+            "index": i + 1,
+            "question": q,
+            "answer": answers[i] if i < len(answers) else "(no answer given)",
+        })
+
+    scored = await score_interview(
+        job_title=interview.get("job_title", "the role"),
+        job_description=interview.get("job_description"),
+        parsed_resume=await _fetch_parsed_resume(db, interview, user_id),
+        qa_pairs=qa_pairs,
+    )
+    if scored is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI service is unavailable. Check the GROQ_API_KEY and try again.",
+        )
+
+    # ----- Aggregate in Python (deterministic, reproducible) -----
+    model_pq = {int(p.get("index", idx + 1)): p
+                for idx, p in enumerate(scored.get("per_question", []))}
+
+    per_question = []
+    dim_totals = {d: [] for d in _DIMS}
+    for pair in qa_pairs:
+        idx = pair["index"]
+        raw = model_pq.get(idx, {})
+        raw_scores = raw.get("scores", {}) or {}
+        scores = {d: _clamp_score(raw_scores.get(d, 0)) for d in _DIMS}
+        for d in _DIMS:
+            dim_totals[d].append(scores[d])
+        per_question.append({
+            "index": idx,
+            "question": pair["question"],
+            "answer": pair["answer"],
+            "scores": scores,
+            "feedback": str(raw.get("feedback", "")).strip(),
+        })
+
+    def _mean(nums):
+        return int(round(sum(nums) / len(nums))) if nums else 0
+
+    dimensions = {d: _mean(dim_totals[d]) for d in _DIMS}
+    overall_score = _mean(list(dimensions.values()))
+
+    completed_at = interview.get("completed_at")
+    report = {
+        "interview_id": interview_id,
+        "job_title": interview.get("job_title"),
+        "completed_at": completed_at.isoformat() if hasattr(completed_at, "isoformat") else completed_at,
+        "overall_score": overall_score,
+        "verdict": str(scored.get("verdict", "")).strip(),
+        "dimensions": dimensions,
+        "strengths": list(scored.get("strengths", []))[:5],
+        "improvements": list(scored.get("improvements", []))[:5],
+        "jd_gap_recap": str(scored.get("jd_gap_recap", "")).strip(),
+        "per_question": per_question,
+    }
+
+    # Cache so re-opening the report is instant.
+    await db.interviews.update_one({"_id": oid}, {"$set": {"report": report}})
+    logger.info(f"Report computed for interview {interview_id} — overall={overall_score}")
+    return report
+
+
+async def _fetch_parsed_resume(db, interview: dict, user_id: str) -> dict:
+    """Best-effort fetch of the resume's parsed data for scoring context."""
+    try:
+        resume = await db.resumes.find_one(
+            {"_id": ObjectId(interview["resume_id"]), "user_id": user_id}
+        )
+        return (resume or {}).get("parsed_data") or {}
+    except Exception:
+        return {}

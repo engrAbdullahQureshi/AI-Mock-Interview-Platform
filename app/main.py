@@ -11,12 +11,21 @@ from app.database import DatabaseManager
 from app.redis_client import RedisManager
 
 # ========== LOGGING CONFIGURATION ==========
+# Make console + file logging UTF-8 safe (Windows consoles default to cp1252,
+# which otherwise throws UnicodeEncodeError on non-ASCII log messages).
+import sys as _sys
+for _stream in (_sys.stdout, _sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler('app.log')
+        logging.FileHandler('app.log', encoding='utf-8')
     ]
 )
 logger = logging.getLogger(__name__)
@@ -36,6 +45,10 @@ async def lifespan(app: FastAPI):
         raise
 
     await RedisManager.connect_redis()
+
+    # Seed a demo account + sample resume on first boot (so the demo never fumbles)
+    from app.store.seed import seed_if_empty
+    await seed_if_empty(DatabaseManager.get_db())
 
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     logger.info(f"Upload directory: {settings.UPLOAD_DIR}")
@@ -191,6 +204,7 @@ from app.routers import auth
 from app.routers import resumes
 from app.routers import interviews     # Phase 4
 from app.routers import websocket      # Phase 5
+from app.routers import analysis       # JD gap analysis
 
 app.include_router(
     auth.router,
@@ -214,6 +228,12 @@ app.include_router(                    # Phase 5
     websocket.router,
     prefix="/api/v1/ws",
     tags=["WebSocket"]
+)
+
+app.include_router(
+    analysis.router,
+    prefix="/api/v1/analysis",
+    tags=["Analysis"]
 )
 
 

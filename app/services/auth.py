@@ -1,18 +1,17 @@
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+import bcrypt
 from app.config import settings
 import logging
- 
+
 logger = logging.getLogger(__name__)
- 
- 
+
+
 # ========== PASSWORD HASHING ==========
-# CryptContext handles all bcrypt operations
-# bcrypt automatically salts and hashes — never store plain passwords
- 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Uses the `bcrypt` library directly (no passlib) — automatically salts and
+# hashes; never store plain passwords. bcrypt has a 72-byte input limit, which
+# is irrelevant for normal passwords.
  
  
 def hash_password(plain_password: str) -> str:
@@ -27,7 +26,7 @@ def hash_password(plain_password: str) -> str:
     - Automatically handles salting (prevents rainbow table attacks)
     - Industry standard for password storage
     """
-    return pwd_context.hash(plain_password)
+    return bcrypt.hashpw(plain_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
  
  
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -40,7 +39,12 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
  
     NOTE: Never compare plain text to hash directly — always use this function.
     """
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        return bcrypt.checkpw(
+            plain_password.encode("utf-8"), hashed_password.encode("utf-8")
+        )
+    except Exception:
+        return False
  
  
 # ========== JWT TOKEN CREATION ==========

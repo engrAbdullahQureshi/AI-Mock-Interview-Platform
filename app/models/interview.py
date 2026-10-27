@@ -25,6 +25,10 @@ class InterviewCreateRequest(BaseModel):
     job_title:     str = Field(..., min_length=2, max_length=100,
                                example="Full Stack Engineer")
     num_questions: int = Field(default=10, ge=1, le=20)
+    # Optional: when present, questions are tailored to the JD and deliberately
+    # probe the gaps surfaced by the gap-analysis step.
+    job_description: Optional[str] = Field(default=None, max_length=8000)
+    focus_skills:    Optional[List[str]] = Field(default=None)
 
 
 # ========== RESPONSE MODELS ==========

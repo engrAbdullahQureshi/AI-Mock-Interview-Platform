@@ -30,3 +30,11 @@ uploads/*
 # Database
 *.db
 *.sqlite3
+# Local runtime / dev artifacts
+.venv/
+.localdb.json
+.last_report.json
+app.log
+uploads/
+__pycache__/
+*.pyc
