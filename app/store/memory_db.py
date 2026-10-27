@@ -29,7 +29,7 @@ import copy
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
@@ -85,11 +85,16 @@ class MemoryCursor:
     async def to_list(self, length: Optional[int] = None) -> List[dict]:
         docs = self._docs
         if self._sort_key is not None:
-            docs = sorted(
-                docs,
-                key=lambda d: (d.get(self._sort_key) is None, d.get(self._sort_key)),
-                reverse=(self._sort_dir == -1),
-            )
+            def _key(d):
+                v = d.get(self._sort_key)
+                # Normalize datetimes so naive and aware values can be compared
+                # (seeded data is tz-aware; some writes used naive utcnow()).
+                if isinstance(v, datetime):
+                    if v.tzinfo is None:
+                        v = v.replace(tzinfo=timezone.utc)
+                    return (False, v.timestamp())
+                return (v is None, v)
+            docs = sorted(docs, key=_key, reverse=(self._sort_dir == -1))
         if length is not None:
             docs = docs[:length]
         return [copy.deepcopy(d) for d in docs]

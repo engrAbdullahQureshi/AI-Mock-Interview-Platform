@@ -218,8 +218,10 @@ async def interview_chat(
 
     # ── 5. Send greeting + Question 1 ─────────────────────────────────────
     greeting_prompt = (
-        f"Greet {candidate} warmly, introduce yourself as their interviewer for the "
-        f"{interview['job_title']} role, and ask the FIRST question from your list."
+        f"Greet {candidate} warmly, introduce yourself simply as their interviewer "
+        f"for the {interview['job_title']} role (do NOT invent or use a placeholder "
+        f"name such as [Your Name] — just say you're the interviewer), and ask the "
+        f"FIRST question from your list."
     )
     groq_history.append({"role": "user", "content": greeting_prompt})
     opening = _call_groq(system_prompt, groq_history)

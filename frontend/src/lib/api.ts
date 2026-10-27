@@ -92,6 +92,14 @@ async function tryRefresh(): Promise<boolean> {
   }
 }
 
+/** Ensure a usable access token is in memory, refreshing from the stored
+ *  refresh token if needed. Used before opening the interview WebSocket, whose
+ *  auth travels as a query param (so it can't trigger refresh-on-401/403). */
+export async function ensureToken(): Promise<boolean> {
+  if (accessToken) return true;
+  return tryRefresh();
+}
+
 async function parseError(res: Response): Promise<string> {
   try {
     const data = await res.json();

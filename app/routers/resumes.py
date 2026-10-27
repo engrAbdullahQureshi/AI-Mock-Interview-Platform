@@ -1,7 +1,7 @@
 import os
 import uuid
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
@@ -153,7 +153,7 @@ async def upload_resume(
 
     # Step 6: Save to MongoDB
     user_id = str(current_user["_id"])
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     resume_doc = {
         "user_id": user_id,

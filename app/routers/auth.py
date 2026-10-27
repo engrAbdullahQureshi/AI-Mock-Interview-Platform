@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from motor.motor_asyncio import AsyncIOMotorDatabase
-from datetime import datetime
+from datetime import datetime, timezone
  
 from app.database import get_database
 from app.models.user import (
@@ -133,7 +133,7 @@ async def register(
     hashed_pw = hash_password(request.password)
  
     # Step 3: Build the user document for MongoDB
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     user_doc = {
         "username": request.username,
         "email": request.email.lower(),     # Always store email lowercase

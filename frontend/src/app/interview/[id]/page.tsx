@@ -8,7 +8,7 @@ import { Button } from "@/components/Button";
 import { ChatBubble, TypingBubble } from "@/components/ChatBubble";
 import { ProgressBar } from "@/components/ProgressBar";
 import { useToast } from "@/components/Toast";
-import { api, wsUrl } from "@/lib/api";
+import { api, wsUrl, ensureToken } from "@/lib/api";
 import type { InterviewResponse, WsMessage } from "@/lib/types";
 
 interface ChatMsg {
@@ -39,7 +39,6 @@ function Interview({ id }: { id: string }) {
   const [total, setTotal] = useState(0);
 
   const wsRef = useRef<WebSocket | null>(null);
-  const openedRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Load interview meta (title + total questions)
@@ -56,53 +55,61 @@ function Interview({ id }: { id: string }) {
       .catch(() => toast.error("Couldn't load this interview."));
   }, [id, router, toast]);
 
-  // Open WebSocket
+  // Open WebSocket — StrictMode-safe, and ensures a valid token first
+  // (the token travels as a ?token= query param, so it must be in memory).
   useEffect(() => {
-    if (openedRef.current) return;
-    openedRef.current = true;
+    let ws: WebSocket | null = null;
+    let cancelled = false;
 
-    const ws = new WebSocket(wsUrl(id));
-    wsRef.current = ws;
+    (async () => {
+      await ensureToken();
+      if (cancelled) return;
 
-    ws.onopen = () => setConnected(true);
+      ws = new WebSocket(wsUrl(id));
+      wsRef.current = ws;
 
-    ws.onmessage = (ev) => {
-      let msg: WsMessage;
-      try {
-        msg = JSON.parse(ev.data);
-      } catch {
-        return;
-      }
-      if (msg.type === "ai") {
-        setMessages((m) => [...m, { role: "ai", content: msg.content }]);
-        if (typeof msg.question_index === "number") setQIndex(msg.question_index);
-        if (typeof msg.total_questions === "number") setTotal(msg.total_questions);
+      ws.onopen = () => setConnected(true);
+
+      ws.onmessage = (ev) => {
+        let msg: WsMessage;
+        try {
+          msg = JSON.parse(ev.data);
+        } catch {
+          return;
+        }
+        if (msg.type === "ai") {
+          setMessages((m) => [...m, { role: "ai", content: msg.content }]);
+          if (typeof msg.question_index === "number") setQIndex(msg.question_index);
+          if (typeof msg.total_questions === "number") setTotal(msg.total_questions);
+          setWaiting(false);
+        } else if (msg.type === "complete") {
+          setMessages((m) => [...m, { role: "ai", content: msg.content }]);
+          setWaiting(false);
+          setFinished(true);
+          setTimeout(() => router.push(`/interview/${id}/report`), 2200);
+        } else if (msg.type === "error") {
+          toast.error(msg.content || "Interview error.");
+          setWaiting(false);
+        }
+      };
+
+      ws.onerror = () => {
+        if (cancelled) return; // socket we're about to discard (StrictMode remount)
+        toast.error("Connection problem. Is the backend running?");
         setWaiting(false);
-      } else if (msg.type === "complete") {
-        setMessages((m) => [...m, { role: "ai", content: msg.content }]);
-        setWaiting(false);
-        setFinished(true);
-        setTimeout(() => router.push(`/interview/${id}/report`), 2200);
-      } else if (msg.type === "error") {
-        toast.error(msg.content || "Interview error.");
-        setWaiting(false);
-      }
-    };
+      };
 
-    ws.onerror = () => {
-      toast.error("Connection problem. Is the backend running?");
-      setWaiting(false);
-    };
-
-    ws.onclose = (ev) => {
-      setConnected(false);
-      if (!finished && ev.code === 1008) {
-        toast.error("Session rejected — please log in again.");
-      }
-    };
+      ws.onclose = (ev) => {
+        setConnected(false);
+        if (!cancelled && !finished && ev.code === 1008) {
+          toast.error("Session rejected — please log in again.");
+        }
+      };
+    })();
 
     return () => {
-      ws.close();
+      cancelled = true;
+      if (ws) ws.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
